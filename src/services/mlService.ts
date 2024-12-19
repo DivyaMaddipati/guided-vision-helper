@@ -2,24 +2,23 @@ import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 
 export interface Detection {
-  bbox: [number, number, number, number];
+  bbox: number[];
   class: string;
   score: number;
 }
 
 export interface NavigationInstruction {
-  direction: 'left' | 'right' | 'center';
   message: string;
+  direction: string;
 }
 
 class MLService {
   private model: cocoSsd.ObjectDetection | null = null;
+  private apiUrl = 'http://localhost:5000/api';
 
-  async loadModel() {
+  async loadModel(): Promise<boolean> {
     try {
-      console.log('Loading COCO-SSD model...');
       this.model = await cocoSsd.load();
-      console.log('Model loaded successfully');
       return true;
     } catch (error) {
       console.error('Error loading model:', error);
@@ -28,16 +27,37 @@ class MLService {
   }
 
   async detectObjects(imageData: ImageData): Promise<Detection[]> {
-    if (!this.model) {
-      throw new Error('Model not loaded');
-    }
-
     try {
-      const predictions = await this.model.detect(imageData);
-      console.log('Detections:', predictions);
-      return predictions as Detection[];
+      // Convert ImageData to base64
+      const canvas = document.createElement('canvas');
+      canvas.width = imageData.width;
+      canvas.height = imageData.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not get canvas context');
+      
+      ctx.putImageData(imageData, 0, 0);
+      const base64Image = canvas.toDataURL('image/jpeg');
+
+      // Send to backend
+      const response = await fetch(`${this.apiUrl}/detect`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: base64Image,
+          language: localStorage.getItem('language') || 'en'
+        })
+      });
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error);
+      }
+
+      return data.detections;
     } catch (error) {
-      console.error('Error during detection:', error);
+      console.error('Error detecting objects:', error);
       return [];
     }
   }
@@ -45,30 +65,31 @@ class MLService {
   getNavigationInstructions(detections: Detection[], frameWidth: number): NavigationInstruction[] {
     const leftBoundary = frameWidth / 3;
     const rightBoundary = (2 * frameWidth) / 3;
+    
     const instructions: NavigationInstruction[] = [];
-
+    
     detections.forEach(detection => {
-      const [x, , width] = detection.bbox;
+      const [x, y, width, height] = detection.bbox;
       const objectCenterX = x + width / 2;
-
+      
       if (objectCenterX < leftBoundary) {
         instructions.push({
-          direction: 'left',
-          message: 'Obstacle on the left, move to the center or right.'
+          message: `${detection.class} on the left, move to the center or right.`,
+          direction: 'left'
         });
       } else if (objectCenterX > rightBoundary) {
         instructions.push({
-          direction: 'right',
-          message: 'Obstacle on the right, move to the center or left.'
+          message: `${detection.class} on the right, move to the center or left.`,
+          direction: 'right'
         });
       } else {
         instructions.push({
-          direction: 'center',
-          message: 'Obstacle in the center, avoid or move left/right.'
+          message: `${detection.class} in the center, avoid or move left/right.`,
+          direction: 'center'
         });
       }
     });
-
+    
     return instructions;
   }
 }
