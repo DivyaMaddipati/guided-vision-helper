@@ -18,7 +18,16 @@ class MLService {
 
   async loadModel(): Promise<boolean> {
     try {
+      console.log('Initializing TensorFlow backend...');
+      // Initialize TensorFlow.js backend
+      await tf.ready();
+      // Set the backend to 'webgl' for better performance
+      await tf.setBackend('webgl');
+      console.log('TensorFlow backend initialized:', tf.getBackend());
+      
+      console.log('Loading COCO-SSD model...');
       this.model = await cocoSsd.load();
+      console.log('Model loaded successfully');
       return true;
     } catch (error) {
       console.error('Error loading model:', error);
