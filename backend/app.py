@@ -8,7 +8,8 @@ import threading
 from playsound import playsound
 
 app = Flask(__name__)
-CORS(app)
+# Enable CORS for all domains
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Load YOLOv8 model
 model = YOLO("yolov8n.pt")
@@ -94,6 +95,7 @@ def detect_objects():
         })
         
     except Exception as e:
+        print(f"Error in detect_objects: {str(e)}")  # Add logging
         return jsonify({
             'success': False,
             'error': str(e)
@@ -116,4 +118,4 @@ def update_language():
         }), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)

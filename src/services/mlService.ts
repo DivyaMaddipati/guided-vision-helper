@@ -1,5 +1,6 @@
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
+import { toast } from "sonner";
 
 export interface Detection {
   bbox: number[];
@@ -19,9 +20,7 @@ class MLService {
   async loadModel(): Promise<boolean> {
     try {
       console.log('Initializing TensorFlow backend...');
-      // Initialize TensorFlow.js backend
       await tf.ready();
-      // Set the backend to 'webgl' for better performance
       await tf.setBackend('webgl');
       console.log('TensorFlow backend initialized:', tf.getBackend());
       
@@ -31,13 +30,14 @@ class MLService {
       return true;
     } catch (error) {
       console.error('Error loading model:', error);
+      toast.error('Failed to load ML model');
       return false;
     }
   }
 
   async detectObjects(imageData: ImageData): Promise<Detection[]> {
     try {
-      // Convert ImageData to base64
+      console.log('Converting image data to base64...');
       const canvas = document.createElement('canvas');
       canvas.width = imageData.width;
       canvas.height = imageData.height;
@@ -46,8 +46,9 @@ class MLService {
       
       ctx.putImageData(imageData, 0, 0);
       const base64Image = canvas.toDataURL('image/jpeg');
+      console.log('Image converted successfully');
 
-      // Send to backend
+      console.log('Sending request to backend...');
       const response = await fetch(`${this.apiUrl}/detect`, {
         method: 'POST',
         headers: {
@@ -59,14 +60,20 @@ class MLService {
         })
       });
 
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Unknown error occurred');
+      }
+
+      console.log('Received detections from backend:', data.detections);
       return data.detections;
     } catch (error) {
       console.error('Error detecting objects:', error);
+      toast.error('Failed to process image. Is the backend server running?');
       return [];
     }
   }
