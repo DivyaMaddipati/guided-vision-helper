@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import CameraFeed from "@/components/CameraFeed";
 import ProfileSettings from "@/components/ProfileSettings";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "sonner";
 
 const Index = () => {
   const [profile, setProfile] = useState({
@@ -14,11 +15,11 @@ const Index = () => {
     setProfile(newProfile);
     // Here you would typically send the language preference to your backend
     console.log("Language preference updated:", newProfile.language);
+    toast.success(`Language updated to ${newProfile.language}`);
   };
 
   const handleFrame = (imageData: ImageData) => {
     // Here you would typically send the frame to your ML model
-    // For now, we'll just log that we received a frame
     console.log("Received frame for processing");
   };
 
@@ -36,7 +37,7 @@ const Index = () => {
           </TabsList>
           
           <TabsContent value="camera" className="mt-6">
-            <CameraFeed onFrame={handleFrame} />
+            <CameraFeed onFrame={handleFrame} language={profile.language} />
           </TabsContent>
           
           <TabsContent value="profile" className="mt-6">
