@@ -64,10 +64,10 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ profile, onUpdate }) 
               value={formData.language}
               onValueChange={(value) => setFormData({ ...formData, language: value })}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full bg-background border border-input">
                 <SelectValue placeholder="Select language" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="bg-popover border border-input shadow-md">
                 <SelectItem value="en">English</SelectItem>
                 <SelectItem value="es">Spanish</SelectItem>
                 <SelectItem value="fr">French</SelectItem>
