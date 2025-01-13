@@ -17,6 +17,7 @@ const CameraFeed: React.FC<CameraFeedProps> = ({ onFrame, language = 'en' }) => 
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [detections, setDetections] = useState<Detection[]>([]);
   const [instructions, setInstructions] = useState<NavigationInstruction[]>([]);
+  const [canvasDimensions, setCanvasDimensions] = useState({ width: 640, height: 480 });
 
   useEffect(() => {
     const loadModel = async () => {
@@ -40,7 +41,16 @@ const CameraFeed: React.FC<CameraFeedProps> = ({ onFrame, language = 'en' }) => 
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        setIsStreaming(true);
+        videoRef.current.onloadedmetadata = () => {
+          if (videoRef.current && canvasRef.current) {
+            const videoWidth = videoRef.current.videoWidth;
+            const videoHeight = videoRef.current.videoHeight;
+            setCanvasDimensions({ width: videoWidth, height: videoHeight });
+            canvasRef.current.width = videoWidth;
+            canvasRef.current.height = videoHeight;
+            setIsStreaming(true);
+          }
+        };
         toast.success("Camera started successfully");
       }
     } catch (err) {
@@ -67,53 +77,70 @@ const CameraFeed: React.FC<CameraFeedProps> = ({ onFrame, language = 'en' }) => 
     const processFrame = async () => {
       if (videoRef.current && canvasRef.current && isStreaming && isModelLoaded) {
         const context = canvasRef.current.getContext('2d');
-        if (context) {
-          // Draw video frame to canvas
-          context.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-          
-          // Get image data for processing
-          const imageData = context.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
-          
-          // Process frame with ML model
-          const newDetections = await mlService.detectObjects(imageData);
-          setDetections(newDetections);
-          
-          // Get navigation instructions
-          const newInstructions = mlService.getNavigationInstructions(newDetections, canvasRef.current.width);
-          setInstructions(newInstructions);
-
-          // Draw detections
-          newDetections.forEach(detection => {
-            const [x, y, width, height] = detection.bbox;
-            context.strokeStyle = '#00FF00';
-            context.lineWidth = 2;
-            context.strokeRect(x, y, width, height);
-            context.fillStyle = '#00FF00';
-            context.fillText(
-              `${detection.class} (${Math.round(detection.score * 100)}%)`,
-              x,
-              y > 10 ? y - 5 : 10
-            );
-          });
-
-          // Draw region divisions
-          const leftBoundary = canvasRef.current.width / 3;
-          const rightBoundary = (2 * canvasRef.current.width) / 3;
-          context.strokeStyle = '#0000FF';
-          context.lineWidth = 1;
-          context.beginPath();
-          context.moveTo(leftBoundary, 0);
-          context.lineTo(leftBoundary, canvasRef.current.height);
-          context.moveTo(rightBoundary, 0);
-          context.lineTo(rightBoundary, canvasRef.current.height);
-          context.stroke();
-
-          if (onFrame) {
-            onFrame(imageData);
-          }
+        if (!context || !canvasRef.current.width || !canvasRef.current.height) {
+          console.error("Canvas context or dimensions not available");
+          return;
         }
-        animationFrame = requestAnimationFrame(processFrame);
+
+        // Draw video frame to canvas
+        context.drawImage(
+          videoRef.current, 
+          0, 
+          0, 
+          canvasRef.current.width, 
+          canvasRef.current.height
+        );
+        
+        // Get image data for processing
+        const imageData = context.getImageData(
+          0, 
+          0, 
+          canvasRef.current.width, 
+          canvasRef.current.height
+        );
+        
+        // Process frame with ML model
+        const newDetections = await mlService.detectObjects(imageData);
+        setDetections(newDetections);
+        
+        // Get navigation instructions
+        const newInstructions = mlService.getNavigationInstructions(
+          newDetections, 
+          canvasRef.current.width
+        );
+        setInstructions(newInstructions);
+
+        // Draw detections
+        newDetections.forEach(detection => {
+          const [x, y, width, height] = detection.bbox;
+          context.strokeStyle = '#00FF00';
+          context.lineWidth = 2;
+          context.strokeRect(x, y, width, height);
+          context.fillStyle = '#00FF00';
+          context.fillText(
+            `${detection.class} (${Math.round(detection.score * 100)}%)`,
+            x,
+            y > 10 ? y - 5 : 10
+          );
+        });
+
+        // Draw region divisions
+        const leftBoundary = canvasRef.current.width / 3;
+        const rightBoundary = (2 * canvasRef.current.width) / 3;
+        context.strokeStyle = '#0000FF';
+        context.lineWidth = 1;
+        context.beginPath();
+        context.moveTo(leftBoundary, 0);
+        context.lineTo(leftBoundary, canvasRef.current.height);
+        context.moveTo(rightBoundary, 0);
+        context.lineTo(rightBoundary, canvasRef.current.height);
+        context.stroke();
+
+        if (onFrame) {
+          onFrame(imageData);
+        }
       }
+      animationFrame = requestAnimationFrame(processFrame);
     };
 
     if (isStreaming && isModelLoaded) {
@@ -139,8 +166,8 @@ const CameraFeed: React.FC<CameraFeedProps> = ({ onFrame, language = 'en' }) => 
         <canvas
           ref={canvasRef}
           className="absolute top-0 left-0 w-full h-full"
-          width={640}
-          height={480}
+          width={canvasDimensions.width}
+          height={canvasDimensions.height}
         />
       </div>
 
