@@ -6,16 +6,22 @@ export interface Detection {
   bbox: number[];
   class: string;
   score: number;
+  position?: string;
 }
 
 export interface NavigationInstruction {
   message: string;
   direction: string;
+  object_type: string;
+  confidence?: number;
+  count?: number;
 }
 
 class MLService {
   private model: cocoSsd.ObjectDetection | null = null;
-  private apiUrl = 'http://localhost:5000/api';  // Make sure this matches your Flask backend URL
+  private apiUrl = 'http://localhost:5000/api';
+  private lastInstructionTime: { [key: string]: number } = {};
+  private instructionCooldown = 3000; // 3 seconds cooldown between same instructions
 
   async loadModel(): Promise<boolean> {
     try {
@@ -73,36 +79,31 @@ class MLService {
       return data.detections;
     } catch (error) {
       console.error('Error detecting objects:', error);
-      toast.error('Failed to process image. Is the backend server running?');
+      toast.error('Failed to process image');
       return [];
     }
   }
 
   getNavigationInstructions(detections: Detection[], frameWidth: number): NavigationInstruction[] {
-    const leftBoundary = frameWidth / 3;
-    const rightBoundary = (2 * frameWidth) / 3;
-    
+    const currentTime = Date.now();
     const instructions: NavigationInstruction[] = [];
     
     detections.forEach(detection => {
-      const [x, y, width, height] = detection.bbox;
-      const objectCenterX = x + width / 2;
+      const instructionKey = `${detection.class}_${detection.position}`;
       
-      if (objectCenterX < leftBoundary) {
-        instructions.push({
-          message: `${detection.class} on the left, move to the center or right.`,
-          direction: 'left'
-        });
-      } else if (objectCenterX > rightBoundary) {
-        instructions.push({
-          message: `${detection.class} on the right, move to the center or left.`,
-          direction: 'right'
-        });
-      } else {
-        instructions.push({
-          message: `${detection.class} in the center, avoid or move left/right.`,
-          direction: 'center'
-        });
+      // Check if enough time has passed since the last similar instruction
+      if (!this.lastInstructionTime[instructionKey] || 
+          currentTime - this.lastInstructionTime[instructionKey] >= this.instructionCooldown) {
+        
+        const instruction: NavigationInstruction = {
+          message: `${detection.class} detected ${detection.position}`,
+          direction: detection.position || 'unknown',
+          object_type: detection.class,
+          confidence: detection.score
+        };
+        
+        instructions.push(instruction);
+        this.lastInstructionTime[instructionKey] = currentTime;
       }
     });
     

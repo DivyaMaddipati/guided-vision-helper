@@ -5,30 +5,53 @@ import cv2
 import numpy as np
 import base64
 import threading
-from playsound import playsound
+import pyttsx3
+from queue import Queue
+import torch
+from torchvision import transforms
+from torchvision.models.detection import fasterrcnn_resnet50_fpn
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from gtts import gTTS
 
 app = Flask(__name__)
-# Enable CORS for all domains
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Load YOLOv8 model
-model = YOLO("yolov8n.pt")
+# Initialize models
+yolo_model = YOLO("yolov8n.pt")
+person_detector = fasterrcnn_resnet50_fpn(pretrained=True)
+person_detector.eval()
 
-def play_sound(direction, language="en"):
-    """Play a sound alert for the given direction."""
-    # In a production environment, you would have different language sound files
-    sounds = {
-        "left": "audio/left_instruction.mp3",
-        "right": "audio/right_instruction.mp3",
-        "center": "audio/center_instruction.mp3"
-    }
-    if direction in sounds:
-        threading.Thread(target=playsound, args=(sounds[direction],)).start()
+# Voice feedback queue
+voice_queue = Queue()
+
+def speak_worker():
+    engine = pyttsx3.init()
+    engine.setProperty('rate', 235)
+    engine.setProperty('volume', 1.0)
+    
+    while True:
+        if not voice_queue.empty():
+            text = voice_queue.get()
+            engine.say(text)
+            engine.runAndWait()
+            with voice_queue.mutex:
+                voice_queue.queue.clear()
+
+# Start voice feedback thread
+voice_thread = threading.Thread(target=speak_worker, daemon=True)
+voice_thread.start()
+
+def get_position(frame_width, x_center):
+    if x_center < frame_width / 3:
+        return "left"
+    elif x_center < 2 * frame_width / 3:
+        return "center"
+    else:
+        return "right"
 
 @app.route('/api/detect', methods=['POST'])
 def detect_objects():
     try:
-        # Get the image data from the request
         data = request.json
         image_data = data['image']
         language = data.get('language', 'en')
@@ -40,78 +63,69 @@ def detect_objects():
         
         frame_height, frame_width, _ = frame.shape
         
-        # Define regions
-        left_boundary = frame_width // 3
-        right_boundary = 2 * frame_width // 3
-        
-        # Perform detection
-        results = model(frame)
+        # YOLO detection
+        results = yolo_model(frame)
         
         detections = []
         instructions = []
+        person_count = 0
         
+        # Process each detection
         for result in results:
             boxes = result.boxes
             for box in boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 confidence = float(box.conf[0])
                 class_id = int(box.cls[0])
-                class_name = model.names[class_id]
+                class_name = yolo_model.names[class_id]
                 
-                object_center_x = (x1 + x2) // 2
+                # Calculate center position
+                x_center = (x1 + x2) / 2
+                position = get_position(frame_width, x_center)
                 
                 detection = {
                     'bbox': [x1, y1, x2 - x1, y2 - y1],
                     'class': class_name,
-                    'score': confidence
+                    'score': confidence,
+                    'position': position
                 }
                 detections.append(detection)
                 
-                # Generate instructions based on position
-                if object_center_x < left_boundary:
-                    instruction = {
-                        'message': f"Obstacle on the left, move to the center or right.",
-                        'direction': 'left'
-                    }
-                elif object_center_x > right_boundary:
-                    instruction = {
-                        'message': f"Obstacle on the right, move to the center or left.",
-                        'direction': 'right'
-                    }
-                else:
-                    instruction = {
-                        'message': f"Obstacle in the center, avoid or move left/right.",
-                        'direction': 'center'
-                    }
+                # Generate instruction
+                instruction = {
+                    'message': f"{class_name} detected {position}",
+                    'direction': position,
+                    'object_type': class_name,
+                    'confidence': confidence
+                }
                 instructions.append(instruction)
                 
-                # Play sound based on direction (in production, this would be language-specific)
-                play_sound(instruction['direction'], language)
+                # Count persons
+                if class_name.lower() == 'person':
+                    person_count += 1
+                
+                # Add to voice queue
+                voice_text = f"{class_name} detected {position}"
+                voice_queue.put(voice_text)
+        
+        # Add person count instruction if persons detected
+        if person_count > 0:
+            instructions.append({
+                'message': f"Total persons detected: {person_count}",
+                'direction': 'info',
+                'object_type': 'person_count',
+                'count': person_count
+            })
         
         return jsonify({
             'success': True,
             'detections': detections,
-            'instructions': instructions
+            'instructions': instructions,
+            'person_count': person_count
         })
         
     except Exception as e:
-        print(f"Error in detect_objects: {str(e)}")  # Add logging
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/update-language', methods=['POST'])
-def update_language():
-    try:
-        data = request.json
-        language = data.get('language', 'en')
-        # Here you would typically update the language preference in your database
-        return jsonify({
-            'success': True,
-            'message': f'Language updated to {language}'
-        })
-    except Exception as e:
+        print(f"Error in detect_objects: {str(e)}")
         return jsonify({
             'success': False,
             'error': str(e)
