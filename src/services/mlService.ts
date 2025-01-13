@@ -15,7 +15,7 @@ export interface NavigationInstruction {
 
 class MLService {
   private model: cocoSsd.ObjectDetection | null = null;
-  private apiUrl = 'http://localhost:5000/api';
+  private apiUrl = 'http://localhost:5000/api';  // Make sure this matches your Flask backend URL
 
   async loadModel(): Promise<boolean> {
     try {
